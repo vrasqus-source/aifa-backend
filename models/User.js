@@ -60,6 +60,11 @@ const userSchema = new mongoose.Schema({
     progressEmails: { type: Boolean, default: false },
     promotions:     { type: Boolean, default: true },
   },
+  socialLinks: {
+    linkedin:  { type: String, default: "" },
+    instagram: { type: String, default: "" },
+    portfolio: { type: String, default: "" },
+  },
 }, { timestamps: true });
 
 // Hash password before saving to DB

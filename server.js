@@ -1,7 +1,12 @@
 import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
+import path from "path";
+import { fileURLToPath } from "url";
+import multer from "multer";
 import connectDB from "./config/db.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import authRoutes from "./routes/authRoutes.js";
 import courseRoutes from "./routes/courseRoutes.js";
 import workshopRoutes from "./routes/workshopRoutes.js";
@@ -26,6 +31,25 @@ connectDB();
 
 app.use(cors());
 app.use(express.json());
+
+// Serve uploaded avatars
+app.use("/api/uploads", express.static(path.join(__dirname, "uploads")));
+
+// Multer — avatar upload
+const avatarStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = path.join(__dirname, "uploads");
+    import("fs").then(({ default: fs }) => { fs.mkdirSync(dir, { recursive: true }); cb(null, dir); });
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase() || ".jpg";
+    cb(null, `avatar-${req.user._id}${ext}`);
+  },
+});
+const avatarUpload = multer({ storage: avatarStorage, limits: { fileSize: 5 * 1024 * 1024 }, fileFilter: (req, file, cb) => {
+  if (file.mimetype.startsWith("image/")) cb(null, true);
+  else cb(new Error("Only image files allowed"));
+}});
 
 app.use("/api/auth", authRoutes);
 app.use("/api/courses", courseRoutes);
@@ -207,6 +231,16 @@ app.delete("/api/resources/:id", protect, adminOnly, async (req, res) => {
     await Resource.findByIdAndDelete(req.params.id);
     res.json({ message: "Deleted" });
   } catch { res.status(500).json({ message: "Server error" }); }
+});
+
+// ── Avatar upload ─────────────────────────────────────────────
+app.put("/api/users/me/avatar", protect, avatarUpload.single("avatar"), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+    const avatarUrl = `/api/uploads/${req.file.filename}`;
+    const user = await User.findByIdAndUpdate(req.user._id, { profilePicture: avatarUrl }, { new: true }).select("-password");
+    res.json({ avatarUrl, user });
+  } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
 const PORT = process.env.PORT || 5000;

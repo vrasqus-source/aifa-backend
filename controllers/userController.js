@@ -16,12 +16,13 @@ export const getMyProfile = async (req, res) => {
 
 export const updateProfile = async (req, res) => {
   try {
-    const { name, phone, profilePicture } = req.body;
-    const user = await User.findByIdAndUpdate(
-      req.user._id,
-      { name, phone, profilePicture },
-      { new: true }
-    ).select("-password");
+    const { name, phone, profilePicture, socialLinks } = req.body;
+    const updates = {};
+    if (name !== undefined) updates.name = name;
+    if (phone !== undefined) updates.phone = phone;
+    if (profilePicture !== undefined) updates.profilePicture = profilePicture;
+    if (socialLinks !== undefined) updates.socialLinks = socialLinks;
+    const user = await User.findByIdAndUpdate(req.user._id, updates, { new: true }).select("-password");
     res.json(user);
   } catch (e) {
     res.status(500).json({ message: e.message });
