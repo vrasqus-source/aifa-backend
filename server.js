@@ -24,6 +24,7 @@ import ServiceRequest   from "./models/ServiceRequest.js";
 import SalesConsultation from "./models/SalesConsultation.js";
 import TalentProfile    from "./models/TalentProfile.js";
 import MembershipPlan   from "./models/MembershipPlan.js";
+import PlatformConfig  from "./models/PlatformConfig.js";
 import { protect, adminOnly } from "./middleware/authMiddleware.js";
 import { createOrder, verifyPayment, getMyTransactions, getAllTransactions } from "./controllers/paymentController.js";
 
@@ -352,6 +353,100 @@ app.get("/api/membership/members", protect, adminOnly, async (req, res) => {
       .select("name email createdAt enrolledCourses enrolledWorkshops enrolledBootcamps")
       .sort({ createdAt: -1 });
     res.json(users);
+  } catch { res.status(500).json({ message: "Server error" }); }
+});
+
+// ── PLATFORM CONFIG ─────────────────────────────────────
+async function getConfig(key) {
+  try {
+    const c = await PlatformConfig.findOne({ key }).lean();
+    return (c && c.value) ? c.value : process.env[key] || "";
+  } catch { return process.env[key] || ""; }
+}
+
+app.get("/api/admin/config", protect, adminOnly, async (req, res) => {
+  try {
+    const configs = await PlatformConfig.find().sort({ group: 1, key: 1 });
+    const result = configs.map(c => ({
+      ...c.toObject(),
+      value: c.isSecret && c.value ? "••••••••" : c.value,
+      hasValue: Boolean(c.value),
+    }));
+    res.json(result);
+  } catch { res.status(500).json({ message: "Server error" }); }
+});
+
+app.get("/api/admin/config/:key", protect, adminOnly, async (req, res) => {
+  try {
+    const c = await PlatformConfig.findOne({ key: req.params.key });
+    if (!c) return res.status(404).json({ message: "Key not found" });
+    res.json(c);
+  } catch { res.status(500).json({ message: "Server error" }); }
+});
+
+app.put("/api/admin/config/:key", protect, adminOnly, async (req, res) => {
+  try {
+    const { value } = req.body;
+    const c = await PlatformConfig.findOneAndUpdate(
+      { key: req.params.key },
+      { value, updatedAt: new Date() },
+      { new: true, upsert: true }
+    );
+    res.json(c);
+  } catch { res.status(500).json({ message: "Server error" }); }
+});
+
+app.put("/api/admin/config", protect, adminOnly, async (req, res) => {
+  try {
+    const updates = req.body;
+    const ops = Object.entries(updates).map(([key, value]) => ({
+      updateOne: { filter: { key }, update: { $set: { value } }, upsert: true }
+    }));
+    await PlatformConfig.bulkWrite(ops);
+    res.json({ message: "Saved" });
+  } catch { res.status(500).json({ message: "Server error" }); }
+});
+
+app.post("/api/admin/config/seed", protect, adminOnly, async (req, res) => {
+  try {
+    const defaults = [
+      { key:"EMAIL_USER",          group:"email",   label:"Gmail Address",       isSecret:false },
+      { key:"EMAIL_PASS",          group:"email",   label:"Gmail App Password",  isSecret:true  },
+      { key:"EMAIL_FROM_NAME",     group:"email",   label:"From Name",           isSecret:false },
+      { key:"RAZORPAY_KEY_ID",     group:"payment", label:"Razorpay Key ID",     isSecret:false },
+      { key:"RAZORPAY_KEY_SECRET", group:"payment", label:"Razorpay Key Secret", isSecret:true  },
+      { key:"RAZORPAY_TEST_MODE",  group:"payment", label:"Test Mode",           isSecret:false },
+      { key:"GOOGLE_CLIENT_ID",    group:"auth",    label:"Google Client ID",    isSecret:false },
+      { key:"SITE_NAME",           group:"site",    label:"Site Name",           isSecret:false },
+      { key:"SITE_URL",            group:"site",    label:"Live Site URL",       isSecret:false },
+      { key:"SUPPORT_EMAIL",       group:"site",    label:"Support Email",       isSecret:false },
+    ];
+    for (const d of defaults) {
+      await PlatformConfig.updateOne({ key: d.key }, { $setOnInsert: d }, { upsert: true });
+    }
+    res.json({ message: "Seeded" });
+  } catch { res.status(500).json({ message: "Server error" }); }
+});
+
+// ── COURSE UPDATE ROUTES ─────────────────────────────────
+app.put("/api/courses/:id/lessons", protect, adminOnly, async (req, res) => {
+  try {
+    const { lessons } = req.body;
+    const course = await Course.findByIdAndUpdate(
+      req.params.id,
+      { $set: { lessons } },
+      { new: true }
+    );
+    if (!course) return res.status(404).json({ message: "Course not found" });
+    res.json(course);
+  } catch { res.status(500).json({ message: "Server error" }); }
+});
+
+app.put("/api/courses/:id", protect, adminOnly, async (req, res) => {
+  try {
+    const course = await Course.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    if (!course) return res.status(404).json({ message: "Course not found" });
+    res.json(course);
   } catch { res.status(500).json({ message: "Server error" }); }
 });
 

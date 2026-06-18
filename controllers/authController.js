@@ -4,16 +4,16 @@ import User from '../models/User.js';
 import bcrypt from 'bcryptjs';
 import { OAuth2Client } from 'google-auth-library';
 import nodemailer from 'nodemailer';
+import PlatformConfig from '../models/PlatformConfig.js';
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
-const transporter = nodemailer.createTransport({
-  service: process.env.EMAIL_SERVICE || 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
+async function getConfig(key) {
+  try {
+    const c = await PlatformConfig.findOne({ key }).lean();
+    return (c && c.value) ? c.value : process.env[key] || "";
+  } catch { return process.env[key] || ""; }
+}
 
 // Helper to create JWT
 const generateToken = (id) => {
@@ -122,14 +122,20 @@ export const forgotPassword = async (req, res) => {
     const resetToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
     const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:5174'}/reset-password?token=${resetToken}`;
 
-    const emailConfigured = process.env.EMAIL_USER &&
-      process.env.EMAIL_PASS &&
-      !process.env.EMAIL_USER.includes('your_gmail') &&
-      !process.env.EMAIL_PASS.includes('your_gmail');
+    const emailUser = await getConfig("EMAIL_USER");
+    const emailPass = await getConfig("EMAIL_PASS");
+    const fromName  = await getConfig("EMAIL_FROM_NAME") || "AIFA Film Academy";
+
+    const emailConfigured = emailUser && emailPass &&
+      !emailUser.includes('your_gmail') && !emailPass.includes('your_gmail');
 
     if (emailConfigured) {
+      const transporter = nodemailer.createTransport({
+        service: process.env.EMAIL_SERVICE || 'gmail',
+        auth: { user: emailUser, pass: emailPass },
+      });
       await transporter.sendMail({
-        from: `"AIFA Film Academy" <${process.env.EMAIL_USER}>`,
+        from: `"${fromName}" <${emailUser}>`,
         to: email,
         subject: 'Reset your AIFA password',
         html: `
