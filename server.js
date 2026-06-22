@@ -29,6 +29,7 @@ import Coupon from "./models/Coupon.js";
 import BootcampSession from "./models/BootcampSession.js";
 import BootcampProject from "./models/BootcampProject.js";
 import BootcampAnnouncement from "./models/BootcampAnnouncement.js";
+import Notification from "./models/Notification.js";
 import { protect, adminOnly } from "./middleware/authMiddleware.js";
 import { createOrder, verifyPayment, getMyTransactions, getAllTransactions } from "./controllers/paymentController.js";
 
@@ -522,6 +523,83 @@ app.put("/api/courses/:id", protect, adminOnly, async (req, res) => {
     const course = await Course.findByIdAndUpdate(req.params.id, req.body, { new: true });
     if (!course) return res.status(404).json({ message: "Course not found" });
     res.json(course);
+  } catch { res.status(500).json({ message: "Server error" }); }
+});
+
+// ── Notifications ────────────────────────────────────────────
+
+/* Get my notifications */
+app.get("/api/notifications/me", protect, async (req, res) => {
+  try {
+    const notifs = await Notification.find({ user: req.user._id })
+      .sort({ createdAt: -1 }).limit(20);
+    res.json(notifs);
+  } catch { res.status(500).json({ message: "Server error" }); }
+});
+
+/* Unread count */
+app.get("/api/notifications/unread-count", protect, async (req, res) => {
+  try {
+    const count = await Notification.countDocuments({ user: req.user._id, isRead: false });
+    res.json({ count });
+  } catch { res.status(500).json({ message: "Server error" }); }
+});
+
+/* Mark all as read */
+app.put("/api/notifications/read", protect, async (req, res) => {
+  try {
+    await Notification.updateMany({ user: req.user._id, isRead: false }, { isRead: true });
+    res.json({ message: "Marked all as read" });
+  } catch { res.status(500).json({ message: "Server error" }); }
+});
+
+/* Mark one as read */
+app.put("/api/notifications/:id/read", protect, async (req, res) => {
+  try {
+    await Notification.findByIdAndUpdate(req.params.id, { isRead: true });
+    res.json({ message: "Marked as read" });
+  } catch { res.status(500).json({ message: "Server error" }); }
+});
+
+/* Admin: send notification to specific users or all bootcamp students */
+app.post("/api/notifications/broadcast", protect, adminOnly, async (req, res) => {
+  try {
+    const { title, message, type = "general", link = "", bootcampId, userIds } = req.body;
+    if (!title) return res.status(400).json({ message: "Title is required" });
+
+    let targetIds = userIds || [];
+
+    // If bootcampId provided, notify all enrolled students
+    if (bootcampId && (!userIds || userIds.length === 0)) {
+      const bc = await Bootcamp.findById(bootcampId).select("enrollments");
+      if (bc) targetIds = bc.enrollments.map(id => id.toString());
+    }
+
+    // If neither, notify ALL users
+    if (targetIds.length === 0) {
+      const users = await User.find({ role: "student" }).select("_id");
+      targetIds = users.map(u => u._id.toString());
+    }
+
+    const docs = targetIds.map(uid => ({ user: uid, title, message, type, link, isRead: false }));
+    await Notification.insertMany(docs);
+    res.status(201).json({ message: `Sent to ${docs.length} users` });
+  } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+/* Admin: create single notification */
+app.post("/api/notifications", protect, adminOnly, async (req, res) => {
+  try {
+    const notif = await Notification.create(req.body);
+    res.status(201).json(notif);
+  } catch (e) { res.status(400).json({ message: e.message }); }
+});
+
+/* Admin: get all notifications */
+app.get("/api/notifications", protect, adminOnly, async (req, res) => {
+  try {
+    const notifs = await Notification.find({}).populate("user","name email").sort({ createdAt: -1 }).limit(50);
+    res.json(notifs);
   } catch { res.status(500).json({ message: "Server error" }); }
 });
 
