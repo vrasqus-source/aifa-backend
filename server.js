@@ -30,6 +30,8 @@ import BootcampSession from "./models/BootcampSession.js";
 import BootcampProject from "./models/BootcampProject.js";
 import BootcampAnnouncement from "./models/BootcampAnnouncement.js";
 import Notification from "./models/Notification.js";
+import CommunityThread from "./models/CommunityThread.js";
+import CommunityEvent from "./models/CommunityEvent.js";
 import { protect, adminOnly } from "./middleware/authMiddleware.js";
 import { createOrder, verifyPayment, getMyTransactions, getAllTransactions } from "./controllers/paymentController.js";
 
@@ -600,6 +602,68 @@ app.get("/api/notifications", protect, adminOnly, async (req, res) => {
   try {
     const notifs = await Notification.find({}).populate("user","name email").sort({ createdAt: -1 }).limit(50);
     res.json(notifs);
+  } catch { res.status(500).json({ message: "Server error" }); }
+});
+
+// ── Community ──────────────────────────────────────────────
+
+// Threads
+app.get("/api/community/threads", async (req, res) => {
+  try {
+    const threads = await CommunityThread.find({}).sort({ createdAt: -1 });
+    res.json(threads);
+  } catch { res.status(500).json({ message: "Server error" }); }
+});
+
+app.post("/api/community/threads", protect, async (req, res) => {
+  try {
+    const { title, body, tag, author } = req.body;
+    if (!title || !body) return res.status(400).json({ message: "Title and body are required" });
+    const thread = await CommunityThread.create({ title, body, tag: tag || "General", author: author || req.user?.name || "Anonymous", authorId: req.user._id });
+    res.status(201).json(thread);
+  } catch (e) { res.status(400).json({ message: e.message }); }
+});
+
+app.post("/api/community/threads/:id/reply", protect, async (req, res) => {
+  try {
+    const { text, author } = req.body;
+    if (!text) return res.status(400).json({ message: "Reply text required" });
+    const thread = await CommunityThread.findByIdAndUpdate(
+      req.params.id,
+      { $push: { replies: { author: author || req.user?.name || "Anonymous", text, createdAt: new Date() } } },
+      { new: true }
+    );
+    if (!thread) return res.status(404).json({ message: "Thread not found" });
+    res.json(thread);
+  } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+app.delete("/api/community/threads/:id", protect, adminOnly, async (req, res) => {
+  try {
+    await CommunityThread.findByIdAndDelete(req.params.id);
+    res.json({ message: "Deleted" });
+  } catch { res.status(500).json({ message: "Server error" }); }
+});
+
+// Events
+app.get("/api/community/events", async (req, res) => {
+  try {
+    const events = await CommunityEvent.find({}).sort({ createdAt: -1 });
+    res.json(events);
+  } catch { res.status(500).json({ message: "Server error" }); }
+});
+
+app.post("/api/community/events", protect, adminOnly, async (req, res) => {
+  try {
+    const ev = await CommunityEvent.create(req.body);
+    res.status(201).json(ev);
+  } catch (e) { res.status(400).json({ message: e.message }); }
+});
+
+app.delete("/api/community/events/:id", protect, adminOnly, async (req, res) => {
+  try {
+    await CommunityEvent.findByIdAndDelete(req.params.id);
+    res.json({ message: "Deleted" });
   } catch { res.status(500).json({ message: "Server error" }); }
 });
 
