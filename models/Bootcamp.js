@@ -13,6 +13,17 @@ const bootcampSchema = new mongoose.Schema({
   instructors: [{ name: String, bio: String, image: String }],
   enrollments: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
   isPublished: { type: Boolean, default: false },
+  originalPrice:   { type: Number },
+  batchCode:       { type: String, default: "" },
+  batchName:       { type: String, default: "" },
+  zoomLink:        { type: String, default: "" },
+  zoomId:          { type: String, default: "" },
+  zoomPass:        { type: String, default: "" },
+  mentors:         [{ name: String, role: String }],
+  nextSessionName: { type: String, default: "" },
+  nextSessionAt:   { type: Date },
+  batchLabel:      { type: String, default: "" },
+  enrolledCount:   { type: Number, default: 0 },
 }, { timestamps: true });
 
 export default mongoose.model("Bootcamp", bootcampSchema);

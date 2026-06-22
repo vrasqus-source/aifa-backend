@@ -25,6 +25,10 @@ import SalesConsultation from "./models/SalesConsultation.js";
 import TalentProfile    from "./models/TalentProfile.js";
 import MembershipPlan   from "./models/MembershipPlan.js";
 import PlatformConfig  from "./models/PlatformConfig.js";
+import Coupon from "./models/Coupon.js";
+import BootcampSession from "./models/BootcampSession.js";
+import BootcampProject from "./models/BootcampProject.js";
+import BootcampAnnouncement from "./models/BootcampAnnouncement.js";
 import { protect, adminOnly } from "./middleware/authMiddleware.js";
 import { createOrder, verifyPayment, getMyTransactions, getAllTransactions } from "./controllers/paymentController.js";
 
@@ -176,6 +180,59 @@ app.delete("/api/certificates/:id", protect, adminOnly, async (req, res) => {
   try {
     await Certificate.findByIdAndDelete(req.params.id);
     res.json({ message: "Deleted" });
+  } catch { res.status(500).json({ message: "Server error" }); }
+});
+
+// ── Coupons ───────────────────────────────────────────────────
+app.post("/api/coupons/validate", async (req, res) => {
+  try {
+    const { code } = req.body;
+    if (!code) return res.json({ valid: false, message: "Code required" });
+    const c = await Coupon.findOne({ code: code.toUpperCase().trim() });
+    if (!c || !c.isActive) return res.json({ valid: false, message: "Invalid or inactive coupon" });
+    if (c.expiresAt && c.expiresAt < new Date()) return res.json({ valid: false, message: "Coupon has expired" });
+    if (c.maxUses > 0 && c.usedCount >= c.maxUses) return res.json({ valid: false, message: "Coupon usage limit reached" });
+    return res.json({ valid: true, code: c.code, discountType: c.discountType, discountValue: c.discountValue });
+  } catch { res.status(500).json({ message: "Server error" }); }
+});
+
+app.get("/api/coupons", protect, adminOnly, async (req, res) => {
+  try { res.json(await Coupon.find().sort({ createdAt: -1 })); }
+  catch { res.status(500).json({ message: "Server error" }); }
+});
+
+app.post("/api/coupons", protect, adminOnly, async (req, res) => {
+  try {
+    const data = { ...req.body };
+    if (data.code) data.code = data.code.toUpperCase().trim();
+    const coupon = await Coupon.create(data);
+    res.status(201).json(coupon);
+  } catch (e) { res.status(400).json({ message: e.message }); }
+});
+
+app.put("/api/coupons/:id", protect, adminOnly, async (req, res) => {
+  try {
+    const coupon = await Coupon.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    if (!coupon) return res.status(404).json({ message: "Not found" });
+    res.json(coupon);
+  } catch { res.status(500).json({ message: "Server error" }); }
+});
+
+app.delete("/api/coupons/:id", protect, adminOnly, async (req, res) => {
+  try { await Coupon.findByIdAndDelete(req.params.id); res.json({ message: "Deleted" }); }
+  catch { res.status(500).json({ message: "Server error" }); }
+});
+
+// ── Bootcamp Students (admin) ─────────────────────────────────
+app.get("/api/bootcamps/:id/students", protect, adminOnly, async (req, res) => {
+  try {
+    const bootcamp = await Bootcamp.findById(req.params.id).populate("enrollments", "name email phone createdAt");
+    if (!bootcamp) return res.status(404).json({ message: "Not found" });
+    res.json(bootcamp.enrollments.map(u => ({
+      _id: u._id, name: u.name, email: u.email,
+      mobile: u.phone || "", joinDate: new Date(u.createdAt).toLocaleDateString("en-IN"),
+      status: "ACTIVE",
+    })));
   } catch { res.status(500).json({ message: "Server error" }); }
 });
 
@@ -410,22 +467,40 @@ app.put("/api/admin/config", protect, adminOnly, async (req, res) => {
 app.post("/api/admin/config/seed", protect, adminOnly, async (req, res) => {
   try {
     const defaults = [
-      { key:"EMAIL_USER",          group:"email",   label:"Gmail Address",       isSecret:false },
-      { key:"EMAIL_PASS",          group:"email",   label:"Gmail App Password",  isSecret:true  },
-      { key:"EMAIL_FROM_NAME",     group:"email",   label:"From Name",           isSecret:false },
-      { key:"RAZORPAY_KEY_ID",     group:"payment", label:"Razorpay Key ID",     isSecret:false },
-      { key:"RAZORPAY_KEY_SECRET", group:"payment", label:"Razorpay Key Secret", isSecret:true  },
-      { key:"RAZORPAY_TEST_MODE",  group:"payment", label:"Test Mode",           isSecret:false },
-      { key:"GOOGLE_CLIENT_ID",    group:"auth",    label:"Google Client ID",    isSecret:false },
-      { key:"SITE_NAME",           group:"site",    label:"Site Name",           isSecret:false },
-      { key:"SITE_URL",            group:"site",    label:"Live Site URL",       isSecret:false },
-      { key:"SUPPORT_EMAIL",       group:"site",    label:"Support Email",       isSecret:false },
+      { key:"EMAIL_USER",           group:"email",   label:"Gmail Address",            isSecret:false },
+      { key:"EMAIL_PASS",           group:"email",   label:"Gmail App Password",       isSecret:true  },
+      { key:"EMAIL_FROM_NAME",      group:"email",   label:"From Name",                isSecret:false },
+      { key:"RAZORPAY_KEY_ID",      group:"payment", label:"Razorpay Key ID",          isSecret:false },
+      { key:"RAZORPAY_KEY_SECRET",  group:"payment", label:"Razorpay Key Secret",      isSecret:true  },
+      { key:"RAZORPAY_TEST_MODE",   group:"payment", label:"Test Mode",                isSecret:false },
+      { key:"GOOGLE_CLIENT_ID",     group:"auth",    label:"Google Client ID",         isSecret:false },
+      { key:"TWILIO_SID",           group:"auth",    label:"Twilio Account SID",       isSecret:true  },
+      { key:"TWILIO_TOKEN",         group:"auth",    label:"Twilio Auth Token",        isSecret:true  },
+      { key:"TWILIO_PHONE",         group:"auth",    label:"Twilio Phone Number",      isSecret:false },
+      { key:"TURNSTILE_SITE_KEY",   group:"auth",    label:"Turnstile Site Key",       isSecret:false },
+      { key:"TURNSTILE_SECRET_KEY", group:"auth",    label:"Turnstile Secret Key",     isSecret:true  },
+      { key:"SITE_NAME",            group:"site",    label:"Site Name",                isSecret:false },
+      { key:"SITE_URL",             group:"site",    label:"Live Site URL",            isSecret:false },
+      { key:"SUPPORT_EMAIL",        group:"site",    label:"Support Email",            isSecret:false },
     ];
     for (const d of defaults) {
       await PlatformConfig.updateOne({ key: d.key }, { $setOnInsert: d }, { upsert: true });
     }
     res.json({ message: "Seeded" });
   } catch { res.status(500).json({ message: "Server error" }); }
+});
+
+// ── PUBLIC CONFIG (no auth) ─────────────────────────────
+app.get("/api/config/public", async (req, res) => {
+  try {
+    const keys = ["TURNSTILE_SITE_KEY", "SITE_NAME", "SITE_URL"];
+    const result = {};
+    for (const k of keys) {
+      const c = await PlatformConfig.findOne({ key: k }).lean();
+      result[k] = (c && c.value) ? c.value : process.env[k] || "";
+    }
+    res.json(result);
+  } catch { res.json({}); }
 });
 
 // ── COURSE UPDATE ROUTES ─────────────────────────────────
